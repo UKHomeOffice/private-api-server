@@ -42,7 +42,6 @@ steps:
   - n=0; while [ "$n" -lt 60 ] && [ ! -e /var/run/docker.sock ]; do n=$(( n + 1 )); sleep 1; done
   - docker build -t $${DOCKER_NAME} .
   environment:
-    DOCKER_HOST: tcp://172.17.0.1:2375
     DOCKER_NAME:
       from_secret: docker_name
   volumes:
@@ -54,8 +53,7 @@ steps:
     - pull_request
 
 - name: image_to_quay
-  pull: if-not-exists
-  image: docker:17.09.1
+  image: plugins/docker
   commands:
   - docker login -u=$${DOCKER_USERNAME} -p=$${DOCKER_PASSWORD} $${DOCKER_SERVER}
   - docker tag $${DOCKER_NAME} $${DOCKER_SERVER}/$${DOCKER_GROUP}/$${DOCKER_NAME}:latest
@@ -63,7 +61,6 @@ steps:
   environment:
     DOCKER_GROUP:
       from_secret: docker_group
-    DOCKER_HOST: tcp://172.17.0.1:2375
     DOCKER_NAME:
       from_secret: docker_name
     DOCKER_PASSWORD:
@@ -91,7 +88,6 @@ steps:
   environment:
     DOCKER_GROUP:
       from_secret: docker_group
-    DOCKER_HOST: tcp://172.17.0.1:2375
     DOCKER_NAME:
       from_secret: docker_name
     DOCKER_PASSWORD:
