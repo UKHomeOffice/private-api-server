@@ -7,10 +7,6 @@ platform:
   os: linux
   arch: amd64
 
-workspace:
-  base: /build
-  path: src/github.com/ukhomeoffice/private-api-server
-
 steps:
 - name: test
   pull: if-not-exists
