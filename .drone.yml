@@ -1,75 +1,110 @@
-workspace:
-  base: /build
-  path: src/github.com/ukhomeoffice/private-api-server
+---
+kind: pipeline
+type: kubernetes
+name: default
 
-pipeline:
-  test:
-      image: node:8
-      environment:
-        - GRADLE_USER_HOME=~/.gradle
-      commands:
-        - ./gradlew test
-      when:
-        event:
-        - push
-        - pull_request
+platform:
+  os: linux
+  arch: amd64
 
-  sonar-scanner:
-    image: quay.io/ukhomeofficedigital/sonar-scanner:v3.0.1
-    when:
-      status:
-        - failure
-        - success
-      event:
-        - push
-        - pull_request
+steps:
+- name: test
+  pull: if-not-exists
+  image: node:8
+  commands:
+  - ./gradlew test
+  environment:
+    GRADLE_USER_HOME: ~/.gradle
+  when:
+    event:
+    - push
+    - pull_request
 
-  build:
-    image: docker:17.09.1
-    environment:
-      - DOCKER_HOST=tcp://172.17.0.1:2375
-    secrets:
-      - docker_name
-    commands:
-      - docker build -t $${DOCKER_NAME} .
-    when:
-      event:
-        - push
-        - pull_request
+- name: sonar-scanner
+  pull: if-not-exists
+  image: quay.io/ukhomeofficedigital/sonar-scanner:v3.0.1
+  when:
+    event:
+    - push
+    - pull_request
+    status:
+    - failure
+    - success
 
-  image_to_quay:
-    image: docker:17.09.1
-    environment:
-      - DOCKER_HOST=tcp://172.17.0.1:2375
-    secrets:
-      - docker_username
-      - docker_password
-      - docker_server
-      - docker_group
-      - docker_name
-    commands:
-    - docker login -u=$${DOCKER_USERNAME} -p=$${DOCKER_PASSWORD} $${DOCKER_SERVER}
-    - docker tag $${DOCKER_NAME} $${DOCKER_SERVER}/$${DOCKER_GROUP}/$${DOCKER_NAME}:latest
-    - docker push $${DOCKER_SERVER}/$${DOCKER_GROUP}/$${DOCKER_NAME}:latest
-    when:
-      branch: master
-      event: push
+- name: build
+  pull: always
+  image: 340268328991.dkr.ecr.eu-west-2.amazonaws.com/acp/dind
+  commands:
+  - n=0; while [ "$n" -lt 60 ] && [ ! docker stats --no-stream ]; do n=$(( n + 1 )); sleep 1; done
+  - docker build -t $${DOCKER_NAME} .
+  environment:
+    DOCKER_NAME:
+      from_secret: docker_name
+  when:
+    event:
+    - push
+    - pull_request
 
-  tag_image_to_quay:
-    image: docker:17.09.1
-    environment:
-      - DOCKER_HOST=tcp://172.17.0.1:2375
-    secrets:
-      - docker_username
-      - docker_password
-      - docker_server
-      - docker_group
-      - docker_name
-    commands:
-    - docker login -u=$${DOCKER_USERNAME} -p=$${DOCKER_PASSWORD} $${DOCKER_SERVER}
-    - docker tag $${DOCKER_NAME} $${DOCKER_SERVER}/$${DOCKER_GROUP}/$${DOCKER_NAME}:$${DRONE_COMMIT_SHA}
-    - docker push $${DOCKER_SERVER}/$${DOCKER_GROUP}/$${DOCKER_NAME}:$${DRONE_COMMIT_SHA}
-    when:
-      branch: master
-      event: tag
+- name: image_to_quay
+  image: plugins/docker
+  commands:
+  - docker login -u=$${DOCKER_USERNAME} -p=$${DOCKER_PASSWORD} $${DOCKER_SERVER}
+  - docker tag $${DOCKER_NAME} $${DOCKER_SERVER}/$${DOCKER_GROUP}/$${DOCKER_NAME}:latest
+  - docker push $${DOCKER_SERVER}/$${DOCKER_GROUP}/$${DOCKER_NAME}:latest
+  environment:
+    DOCKER_GROUP:
+      from_secret: docker_group
+    DOCKER_NAME:
+      from_secret: docker_name
+    DOCKER_PASSWORD:
+      from_secret: docker_password
+    DOCKER_SERVER:
+      from_secret: docker_server
+    DOCKER_USERNAME:
+      from_secret: docker_username
+  volumes:
+  - name: dockersock
+    path: /var/run
+  when:
+    branch:
+    - master
+    event:
+    - push
 
+- name: tag_image_to_quay
+  image: plugins/docker
+  commands:
+  - docker login -u=$${DOCKER_USERNAME} -p=$${DOCKER_PASSWORD} $${DOCKER_SERVER}
+  - docker tag $${DOCKER_NAME} $${DOCKER_SERVER}/$${DOCKER_GROUP}/$${DOCKER_NAME}:$${DRONE_COMMIT_SHA}
+  - docker push $${DOCKER_SERVER}/$${DOCKER_GROUP}/$${DOCKER_NAME}:$${DRONE_COMMIT_SHA}
+  environment:
+    DOCKER_GROUP:
+      from_secret: docker_group
+    DOCKER_NAME:
+      from_secret: docker_name
+    DOCKER_PASSWORD:
+      from_secret: docker_password
+    DOCKER_SERVER:
+      from_secret: docker_server
+    DOCKER_USERNAME:
+      from_secret: docker_username
+  volumes:
+  - name: dockersock
+    path: /var/run
+  when:
+    branch:
+    - master
+    event:
+    - tag
+
+services:
+- name: docker
+  image: 340268328991.dkr.ecr.eu-west-2.amazonaws.com/acp/dind
+
+- name: anchore-submission-server
+  pull: always
+  image: 340268328991.dkr.ecr.eu-west-2.amazonaws.com/acp/anchore-submission:latest
+  commands:
+  - /run.sh server
+
+...
